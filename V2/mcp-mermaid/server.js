@@ -34,7 +34,8 @@ async function renderMermaid(code) {
   await execFileAsync("mmdc", [
     "-i", inputPath,
     "-o", outputPath,
-    "-b", "white",
+    "-t", "dark",
+    "-b", "transparent",
     "--puppeteerConfigFile", "/app/puppeteer-config.json",
   ], { timeout: 30_000 });
 
@@ -119,7 +120,7 @@ function buildWikiMarkup({ title, summary, prerequisites, steps, diagramFilename
   }
 
   lines.push("----");
-  lines.push("_Erstellt mit dem Confluence Bot V2_");
+  lines.push("_Erstellt mit dem Auto-Doc-Bot_");
 
   return lines.join("\n");
 }
@@ -127,7 +128,7 @@ function buildWikiMarkup({ title, summary, prerequisites, steps, diagramFilename
 // ── MCP Server Factory ──────────────────────────────────────────────────────
 function createServer() {
   const server = new McpServer({
-    name: "mcp-confluence-bot",
+    name: "auto-doc-bot",
     version: "2.0.0",
   });
 
@@ -155,7 +156,11 @@ function createServer() {
       if (mermaid_code && mermaid_code.trim() !== "") {
         try {
           // LLM sends literal "\n" (two chars) instead of real newlines — fix before rendering
-          const cleanedCode = mermaid_code.replace(/\\n/g, "\n");
+          // Also sanitize chars that break mermaid syntax as fallback
+          const cleanedCode = mermaid_code
+            .replace(/\\n/g, "\n")
+            .replace(/@/g, "(at)")
+            .replace(/&/g, " und ");
           pngBuffer = await renderMermaid(cleanedCode);
           diagramFilename = `diagram-${randomUUID().slice(0, 8)}.png`;
         } catch (err) {
@@ -308,5 +313,5 @@ app.delete("/mcp", async (req, res) => {
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`mcp-confluence-bot listening on port ${PORT}`);
+  console.log(`auto-doc-bot listening on port ${PORT}`);
 });

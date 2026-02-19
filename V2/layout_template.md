@@ -1,4 +1,4 @@
-# Confluence Bot V2 – Layout Template
+# Auto-Doc-Bot – Layout Template
 # Confluence Wiki Markup Format
 # Platzhalter werden vom Copilot Agent ersetzt
 
@@ -29,4 +29,4 @@ h2. Weiterführende Links
 
 ----
 
-_Erstellt mit dem Confluence Bot V2 (Copilot Agent + MCP-Atlassian)_
+_Erstellt mit dem Auto-Doc-Bot (Copilot Agent + MCP-Atlassian)_

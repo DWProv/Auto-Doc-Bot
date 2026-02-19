@@ -1,9 +1,9 @@
-# Confluence Bot V2 – Session History
+# Auto-Doc-Bot – Session History
 
 ## Session 1 — 19.02.2026
 
 ### Ziel
-Confluence Bot V2 mit Microsoft 365 Copilot Agent + MCP-Atlassian Server aufsetzen.
+Auto-Doc-Bot mit Microsoft 365 Copilot Agent + MCP-Atlassian Server aufsetzen.
 
 ### Was wurde gebaut
 
@@ -212,9 +212,54 @@ ngrok http 8080
 
 ### Offene Punkte
 
-- [ ] **End-to-End Test in Copilot Studio:** Vereinfachtes String-Schema testen
+- [x] **End-to-End Test in Copilot Studio:** → Funktioniert (Session 3)
 - [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
 - [ ] **ngrok URL:** Ändert sich bei jedem Neustart
-- [ ] **README.md aktualisieren:** Spiegelt noch 2-MCP-Architektur wider, sollte 1-MCP-Setup beschreiben
+- [x] **README.md aktualisieren:** → Aktualisiert in Session 3
 - [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
 - [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
+
+---
+
+## Session 3 — 19.02.2026
+
+### Ziel
+Feinschliff: Rückfragen bei fehlenden Infos, Dark Theme für Diagramme, Dokumentation aktualisieren.
+
+### Was wurde gemacht
+
+1. **System Prompt — Rückfragen bei fehlenden Infos**
+   - Agent prüft jetzt ob Titel/Thema und mindestens 3 Schritte vorhanden sind
+   - Bei fehlenden Informationen fragt der Agent gezielt nach
+   - Erst wenn genug Infos da sind, wird das Tool aufgerufen
+
+2. **Mermaid Dark Theme**
+   - mmdc rendert jetzt mit `-t dark -b transparent` (statt `-b white`)
+   - Diagramme haben dunklen Hintergrund mit transparentem Rand
+
+3. **Literale `\n` Fix**
+   - Copilot Agent sendet Mermaid-Code mit literalen `\n` (zwei Zeichen) statt echten Newlines
+   - `mermaid_code.replace(/\\n/g, "\n")` vor dem Rendern eingefügt
+
+4. **GitHub Repository**
+   - Repo erstellt: https://github.com/DWProv/confluence-bot-v2
+   - Alle Änderungen aus Session 2 committed und gepusht
+
+5. **Dokumentation aktualisiert**
+   - README.md: Komplett neu geschrieben — spiegelt jetzt 1-MCP-Architektur wider
+   - SESSION_HISTORY.md: Session 3 hinzugefügt
+
+### Gelöste Probleme
+
+| # | Problem | Ursache | Lösung |
+|---|---------|---------|--------|
+| 19 | Mermaid Parse Error (`\n` literal) | Copilot Agent sendet `\n` als zwei Zeichen statt echten Newline | `replace(/\\n/g, "\n")` vor mmdc-Aufruf |
+| 20 | ngrok auf falschem Port | `ngrok http 8000` statt 8080 | Korrektur auf `ngrok http 8080` (nginx Port) |
+
+### Offene Punkte
+
+- [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
+- [ ] **ngrok URL:** Ändert sich bei jedem Neustart
+- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
+- [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
+- [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
