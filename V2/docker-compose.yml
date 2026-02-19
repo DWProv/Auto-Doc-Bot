@@ -1,0 +1,27 @@
+services:
+
+  # ─── MCP-Server (mcp-atlassian) ───────────────────────────────────────────
+  mcp:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: mcp-atlassian-v2
+    restart: unless-stopped
+    environment:
+      CONFLUENCE_URL: ${CONFLUENCE_URL}
+      CONFLUENCE_USERNAME: ${CONFLUENCE_USERNAME}
+      CONFLUENCE_API_TOKEN: ${CONFLUENCE_API_TOKEN}
+    ports:
+      - "8000:8000"
+    networks:
+      - atlassian-net-v2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',8000),2); s.close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  atlassian-net-v2:
+    name: atlassian-net-v2
