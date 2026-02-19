@@ -22,18 +22,18 @@ flowchart TD
     A[User beschreibt Prozess in Teams] --> B{Agent: Titel + min. 3 Schritte vorhanden?}
     B -->|Nein| C[Agent stellt Rueckfragen]
     C --> A
-    B -->|Ja| D[Agent extrahiert: title, summary,\nprerequisites, steps, mermaid_code, labels]
-    D --> E[Agent ruft create_confluence_doc auf\nalle Parameter als einfache Strings]
-    E --> F[nginx empfaengt POST /mermaid/mcp\nleitet weiter an mcp-mermaid:3000]
-    F --> G[MCP-Server: parseList\nSemikolon-Strings in Arrays]
-    G --> H[buildWikiMarkup\nh1, info-Panel, Schritte, Voraussetzungen]
-    H --> I[Confluence REST API: POST /rest/api/content\nSeite erstellen mit Wiki Markup]
+    B -->|Ja| D["Agent extrahiert: title, summary,<br>prerequisites, steps, mermaid_code, labels"]
+    D --> E["Agent ruft create_confluence_doc auf<br>alle Parameter als einfache Strings"]
+    E --> F["nginx empfaengt POST /mermaid/mcp<br>leitet weiter an mcp-mermaid:3000"]
+    F --> G["MCP-Server: parseList<br>Semikolon-Strings in Arrays"]
+    G --> H["buildWikiMarkup<br>h1, info-Panel, Schritte, Voraussetzungen"]
+    H --> I["Confluence REST API: POST /rest/api/content<br>Seite erstellen mit Wiki Markup"]
     I --> J{Mermaid-Code vorhanden?}
     J -->|Nein| M
-    J -->|Ja| K[mmdc rendert Diagramm\nDark Theme, transparent, PNG]
-    K --> L[Confluence REST API: PUT /child/attachment\nPNG als Attachment hochladen]
+    J -->|Ja| K["mmdc rendert Diagramm<br>Dark Theme, transparent, PNG"]
+    K --> L["Confluence REST API: PUT /child/attachment<br>PNG als Attachment hochladen"]
     L --> M{Labels vorhanden?}
-    M -->|Ja| N[Confluence REST API: POST /label\nLabels setzen]
+    M -->|Ja| N["Confluence REST API: POST /label<br>Labels setzen"]
     M -->|Nein| O
     N --> O[Server gibt Page-URL zurueck]
     O --> P[Agent zeigt Link + Zusammenfassung]
