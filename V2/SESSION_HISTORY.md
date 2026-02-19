@@ -71,25 +71,117 @@ User (Teams / M365 Copilot)
 
 3. **Power Automate als Brücke** — Nicht getestet. Könnte Render-Proxy als Action registrieren.
 
-### Offene Punkte für nächste Session
+### Offene Punkte (Session 1)
 
-- [ ] **Mermaid-Diagramm Fix:** Entweder Mermaid Confluence App installieren (rendert Code-Blöcke) oder Render-Proxy als Copilot Studio Action registrieren
+- [x] **Mermaid-Diagramm Fix:** → Gelöst in Session 2 (mmdc + MCP-Server)
 - [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein (ursprünglich 17.02.2026)
 - [ ] **ngrok URL:** Ändert sich bei jedem Neustart (Free Tier). Muss in Copilot Studio aktualisiert werden
 - [ ] **Prompt Injection Detection:** Sporadisches Blockieren von Tool Calls durch Copilot Studio Safety Filter
 - [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen (Azure Container Instance oder ähnlich)
 
-### Aktive Dateien (funktionsfähiger Stand)
+---
+
+## Session 2 — 19.02.2026
+
+### Ziel
+Mermaid-Diagramme serverseitig via `mmdc` rendern statt fehlerhafte LLM-Base64-Kodierung.
+
+### Architektur-Evolution
+
+Die Architektur hat sich im Laufe der Session mehrfach verändert:
+
+**Phase 1: Zwei MCP-Server (Multi-Tool)**
+```
+Agent → nginx → mcp-atlassian (confluence_create_page, confluence_update_page, confluence_add_labels)
+             → mcp-mermaid   (render_and_upload_mermaid)
+```
+→ Scheiterte an Copilot Studio Content Filter (`openAIIndirectAttack`)
+
+**Phase 2: Ein MCP-Server, ein All-in-One Tool (Final)**
+```
+Agent → nginx → mcp-mermaid (create_confluence_doc) — 1 Tool macht alles
+```
+→ Agent sendet nur strukturierte Plaintext-Daten, Server baut Wiki Markup
+
+### Was wurde gebaut
+
+1. **MCP-Mermaid Server** (`mcp-mermaid/`) — All-in-One MCP-Server
+   - `server.js` — Node.js MCP-Server mit `@modelcontextprotocol/sdk` (Streamable HTTP, Port 3000)
+   - `Dockerfile` — Node 20 + Chromium + `@mermaid-js/mermaid-cli`
+   - Factory-Pattern: Neue McpServer-Instanz pro Session (verhindert "Already connected" Fehler)
+   - **Tool: `create_confluence_doc`** — Alle Parameter als einfache Strings (Semikolon-getrennt)
+     - Baut Wiki Markup serverseitig (`buildWikiMarkup()`)
+     - Erstellt Confluence-Seite via REST API
+     - Rendert Mermaid-Diagramm via mmdc → PNG
+     - Lädt PNG als Attachment hoch
+     - Fügt Labels hinzu
+     - Gibt Page-URL zurück
+
+2. **nginx Reverse Proxy** (`nginx/`) — Pfad-basiertes Routing für einen ngrok-Tunnel
+   - `/atlassian/mcp` → mcp-atlassian:8000 (noch vorhanden, aber nicht mehr in Copilot Studio registriert)
+   - `/mermaid/mcp` → mcp-mermaid:3000 (einziger aktiver MCP-Endpoint)
+
+3. **Docker Stack** — 3 Services (nginx, mcp-atlassian, mcp-mermaid)
+   - nginx exponiert Port 8080 (→ ngrok)
+   - mcp-atlassian und mcp-mermaid nur intern erreichbar
+
+4. **System Prompt** — Minimal, strukturiert, ohne Wiki Markup
+   - Agent ruft nur `create_confluence_doc` auf
+   - Alle Parameter als einfache Texte mit Semikolon-Trennung
+   - Beispiel-Aufruf im Prompt für bessere Tool-Nutzung
+   - Anti-Halluzinations-Anweisungen (keine erfundenen Links)
+
+### Architektur (final)
+
+```
+User (Teams / M365 Copilot)
+    → Copilot Agent (Copilot Studio)
+    → ngrok Tunnel (https://....ngrok-free.dev)
+    → nginx (Port 8080)
+        /mermaid/mcp → mcp-mermaid:3000 (create_confluence_doc)
+    → Confluence REST API
+        Space: ~63d79cdadb4f715c971eece3
+        Parent "N8N": page_id 1703477254
+```
+
+**Nur ein MCP-Server in Copilot Studio registriert:** `https://<ngrok-url>/mermaid/mcp`
+
+### Gelöste Probleme
+
+| # | Problem | Ursache | Lösung |
+|---|---------|---------|--------|
+| 11 | Mermaid Base64 verstümmelt | LLMs können Base64 nicht berechnen | Serverseitiges Rendering via mmdc + Upload als Confluence Attachment |
+| 12 | MCP "Already connected" Fehler | Einzelne McpServer-Instanz für alle Sessions | Factory-Pattern: `createServer()` pro Session |
+| 13 | MCP "Parse error: Invalid JSON" | `express.json()` konsumierte Body vor Transport | `express.json()` Middleware entfernt |
+| 14 | Zwei MCP-Server, ein ngrok-Tunnel | ngrok Free Tier = 1 URL | nginx Reverse Proxy mit Pfad-basiertem Routing |
+| 15 | `openAIIndirectAttack` Content Filter | Wiki Markup (`h2.`, `#`, `{info:}`) in Tool-Call-Parametern wurde als Prompt Injection erkannt | Formatierung komplett serverseitig — Agent sendet nur strukturierte Plaintext-Daten |
+| 16 | Tool sichtbar aber nicht aufgerufen | Komplexe Tool-Schemas (Arrays, verschachtelte Objekte) werden von Copilot Studio nicht ausgeführt | Alle Parameter als einfache Strings mit Semikolon-Trennung |
+| 17 | Halluzinierte Links (SharePoint, HR) | Agent erfand URLs die nicht vom Benutzer stammen | `links`-Parameter entfernt, explizite Anti-Halluzinations-Anweisung im Prompt |
+| 18 | mcp-atlassian + mcp-mermaid Konfusion | Zu viele Tools (4+), Agent nutzte keines korrekt | mcp-atlassian aus Copilot Studio entfernt, 1 All-in-One Tool |
+
+### Verworfene Ansätze (Session 2)
+
+1. **Multi-Tool Workflow (4 Tool Calls)** — Agent sollte: `confluence_create_page` → `render_and_upload_mermaid` → `confluence_update_page` → `confluence_add_labels`. Scheiterte am Content Filter: Wiki Markup in Tool-Parametern wurde als `openAIIndirectAttack` blockiert.
+
+2. **Vereinfachter System Prompt (softer Ton)** — Aggressive Sprache ("MUSS", "NIEMALS") entfernt, ASCII-Umlaute statt Unicode. Content Filter blockierte trotzdem — Problem war der Wiki Markup im Tool Call, nicht der Prompt-Ton.
+
+3. **Zwei MCP-Server in Copilot Studio** — Beide registriert, aber Agent war mit 4+ Tools überfordert und rief keines auf.
+
+### Aktive Dateien
 
 | Datei | Status | Beschreibung |
 |-------|--------|--------------|
-| `docker-compose.yml` | AKTIV | Nur MCP-Server, Port 8000 |
-| `mcp-server/Dockerfile` | AKTIV | streamable-http Transport |
+| `docker-compose.yml` | AKTIV | 3 Services: nginx, mcp-atlassian, mcp-mermaid |
+| `mcp-server/Dockerfile` | AKTIV | mcp-atlassian (läuft noch, aber nicht in Copilot Studio registriert) |
+| `mcp-mermaid/Dockerfile` | AKTIV | Node 20 + Chromium + mmdc |
+| `mcp-mermaid/server.js` | AKTIV | All-in-One MCP-Server mit `create_confluence_doc` Tool |
+| `mcp-mermaid/package.json` | AKTIV | Dependencies (@modelcontextprotocol/sdk, express, zod) |
+| `mcp-mermaid/puppeteer-config.json` | AKTIV | Chromium --no-sandbox Config |
+| `nginx/nginx.conf` | AKTIV | Pfad-Routing für beide MCP-Server |
 | `.env` | AKTIV | Confluence Credentials |
-| `system_prompt.md` | AKTIV | Copilot Agent Instructions |
-| `layout_template.md` | REFERENZ | Wiki Markup Template |
-| `render-service/*` | INAKTIV | Render-Proxy (nicht in docker-compose) |
-| `nginx/*` | INAKTIV | Reverse Proxy (nicht in docker-compose) |
+| `system_prompt.md` | AKTIV | Minimaler Prompt — strukturierte Daten, Semikolon-Trennung |
+| `layout_template.md` | REFERENZ | Wiki Markup Template (wird jetzt serverseitig in server.js generiert) |
+| `render-service/*` | VERALTET | Alter Render-Proxy aus Session 1 |
 
 ### Startup-Anleitung
 
@@ -98,13 +190,31 @@ User (Teams / M365 Copilot)
 cd "C:\Users\p152\Desktop\Atlassian MCP\V2"
 docker compose up -d
 
-# 2. ngrok Tunnel starten
-ngrok http 8000
+# 2. ngrok Tunnel starten (Port 8080)
+ngrok http 8080
 
-# 3. In Copilot Studio:
-#    - MCP-Server URL: https://<ngrok-url>/mcp
+# 3. In Copilot Studio EINEN MCP-Server registrieren:
+#    - Mermaid: https://<ngrok-url>/mermaid/mcp
 #    - System Prompt: Inhalt von system_prompt.md in Instructions einfügen
+#    - KEIN Atlassian-MCP registrieren (create_confluence_doc macht alles)
 
 # 4. Testen mit Prompt:
 #    "Dokumentiere den Onboarding-Prozess für neue Mitarbeiter..."
 ```
+
+### Key Learnings (Session 2)
+
+- **Copilot Studio Content Filter (`openAIIndirectAttack`)** blockiert Tool Calls die Markup oder Instruktions-ähnlichen Text enthalten (`h2.`, `{info:}`, `# Schritt`). Lösung: Formatierung IMMER serverseitig.
+- **Copilot Studio und komplexe Tool-Schemas:** Arrays und verschachtelte Objekte führen dazu, dass der Tool Call nicht ausgeführt wird. Lösung: NUR einfache Strings als Parameter, Semikolon als Trennzeichen.
+- **Weniger Tools = bessere Ergebnisse:** 1 All-in-One Tool funktioniert besser als 4 spezialisierte Tools.
+- **Factory-Pattern für MCP-Server:** Jede Session braucht eine eigene McpServer-Instanz (SDK-Limitation).
+- **express.json() NICHT verwenden:** StreamableHTTPServerTransport liest den Body selbst.
+
+### Offene Punkte
+
+- [ ] **End-to-End Test in Copilot Studio:** Vereinfachtes String-Schema testen
+- [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
+- [ ] **ngrok URL:** Ändert sich bei jedem Neustart
+- [ ] **README.md aktualisieren:** Spiegelt noch 2-MCP-Architektur wider, sollte 1-MCP-Setup beschreiben
+- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
+- [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
