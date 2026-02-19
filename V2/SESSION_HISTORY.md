@@ -224,7 +224,7 @@ ngrok http 8080
 ## Session 3 — 19.02.2026
 
 ### Ziel
-Feinschliff: Rückfragen bei fehlenden Infos, Dark Theme für Diagramme, Dokumentation aktualisieren.
+Feinschliff, Härtung und Produktionsreife: Rückfragen bei fehlenden Infos, Dark Theme, Mermaid-Sonderzeichen-Handling, Tagging-Strategie, Rebranding zu "Auto-Doc-Bot", umfassende Dokumentation.
 
 ### Was wurde gemacht
 
@@ -241,13 +241,36 @@ Feinschliff: Rückfragen bei fehlenden Infos, Dark Theme für Diagramme, Dokumen
    - Copilot Agent sendet Mermaid-Code mit literalen `\n` (zwei Zeichen) statt echten Newlines
    - `mermaid_code.replace(/\\n/g, "\n")` vor dem Rendern eingefügt
 
-4. **GitHub Repository**
-   - Repo erstellt: https://github.com/DWProv/confluence-bot-v2
-   - Alle Änderungen aus Session 2 committed und gepusht
+4. **Mermaid Sonderzeichen-Handling (Dual-Layer)**
+   - **Prompt-Ebene:** Regeln im System Prompt — Agent soll `@`, `&`, `<`, `>`, `"`, `'` vermeiden, statt E-Mail-Adressen beschreibende Kurztexte verwenden (z.B. "E-Mail Buchhaltung")
+   - **Server-Ebene:** Fallback-Sanitizer in `server.js` — `@` → `(at)`, `&` → `und`
+   - **`-->` Arrow Fix:** Initiale `<>`-Ersetzung entfernt, da sie Mermaid-Pfeile (`-->`) zu `--` verstümmelte
 
-5. **Dokumentation aktualisiert**
-   - README.md: Komplett neu geschrieben — spiegelt jetzt 1-MCP-Architektur wider
-   - SESSION_HISTORY.md: Session 3 hinzugefügt
+5. **Tagging-Strategie**
+   - Feste Taxonomie: genau 2 Labels pro Seite
+   - Label 1 — Kategorie: `process` | `guideline` | `checklist` | `troubleshooting` | `reference`
+   - Label 2 — Thema: frei wählbar, Kleinbuchstaben, kein Leerzeichen (z.B. `onboarding`, `deployment`)
+   - Im System Prompt und in der README dokumentiert
+
+6. **Standard-Eingabeaufforderung**
+   - Beispiel-Prompt für den Bot erstellt, den Benutzer als Vorlage verwenden können
+   - Verallgemeinerte Prozessbeschreibung als Testfall erstellt
+
+7. **Rebranding: "Confluence Bot V2" → "Auto-Doc-Bot"**
+   - Umbenannt in: `server.js` (MCP-Name, Console-Log, Footer), `README.md`, `SESSION_HISTORY.md`, `layout_template.md`
+   - GitHub-Repo umbenannt: https://github.com/DWProv/Auto-Doc-Bot
+
+8. **README.md — Komplett-Überarbeitung**
+   - Detailliertes Mermaid-Flowchart mit allen Prozessschritten
+   - 13-Schritte-Tabelle (Komponente, Aktion, API/Tool)
+   - Fehlerbehandlungs-Tabelle
+   - Label-Taxonomie-Dokumentation
+   - Verallgemeinerte Setup-Anleitung (keine hardcoded Credentials)
+
+9. **GitHub Repository**
+   - Repo erstellt: https://github.com/DWProv/confluence-bot-v2 (später umbenannt zu Auto-Doc-Bot)
+   - Alle Änderungen committed und gepusht
+   - Repo-Rename auf GitHub durchgeführt, lokales Remote aktualisiert
 
 ### Gelöste Probleme
 
@@ -255,11 +278,26 @@ Feinschliff: Rückfragen bei fehlenden Infos, Dark Theme für Diagramme, Dokumen
 |---|---------|---------|--------|
 | 19 | Mermaid Parse Error (`\n` literal) | Copilot Agent sendet `\n` als zwei Zeichen statt echten Newline | `replace(/\\n/g, "\n")` vor mmdc-Aufruf |
 | 20 | ngrok auf falschem Port | `ngrok http 8000` statt 8080 | Korrektur auf `ngrok http 8080` (nginx Port) |
+| 21 | Mermaid `@`-Zeichen in E-Mail | `buchhaltung@firma.de` bricht Mermaid-Parser | Dual-Layer: Prompt-Regeln (keine Sonderzeichen in Knoten) + Server-Sanitizer (`@` → `(at)`) |
+| 22 | Mermaid `-->` Pfeile gebrochen | `<>`-Regex entfernte `>` aus `-->` → wurde zu `--` | `<>`-Replacement aus Sanitizer entfernt |
+| 23 | README Mermaid `\n` Formatierung | GitHub rendert literale `\n` nicht als Zeilenumbruch | `\n` durch `<br>` ersetzt, Knoten in `["..."]` gewrappt |
+
+### Verworfene Ansätze (Session 3)
+
+1. **Agent-Icon via Puppeteer** — Versuch ein PNG-Icon im Docker-Container zu generieren. Scheiterte an Pfad-Problemen (Git Bash mangling `/app/` Pfade). Verworfen, manuell erstellen.
+
+### Key Learnings (Session 3)
+
+- **Mermaid Sonderzeichen:** Dual-Layer-Ansatz (Prompt + Server-Fallback) ist robuster als nur eine Ebene
+- **Mermaid Pfeile:** `-->` enthält `>` — globale Zeichenersetzung kann Syntax brechen, nur spezifische Zeichen sanitieren
+- **Copilot Studio Tool-Schemas:** Weiterhin nur einfache Strings, Semikolon als Trennzeichen
+- **GitHub Mermaid:** `\n` in Knotentexten wird nicht gerendert, `<br>` + Quotes nötig
+- **Tagging:** Feste Taxonomie (Kategorie + Thema) hält Tags konsistent und durchsuchbar
 
 ### Offene Punkte
 
 - [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
 - [ ] **ngrok URL:** Ändert sich bei jedem Neustart
-- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
+- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen (Azure Container Instance oder ähnlich)
 - [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
 - [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
