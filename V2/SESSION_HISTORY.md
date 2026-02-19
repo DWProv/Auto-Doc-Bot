@@ -301,3 +301,57 @@ Feinschliff, Härtung und Produktionsreife: Rückfragen bei fehlenden Infos, Dar
 - [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen (Azure Container Instance oder ähnlich)
 - [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
 - [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
+
+---
+
+## Session 4 — 19.02.2026
+
+### Ziel
+SVG-Diagramme, Phasen-Layout, Diagramm-Typ-Auswahl, Dark Theme.
+
+### Was wurde gemacht
+
+1. **SVG als primäres Diagrammformat**
+   - `renderMermaid(code, format = "svg")` — SVG bevorzugt, PNG als Fallback
+   - `mimeForFilename()` — dynamischer MIME-Typ (`image/svg+xml` vs `image/png`)
+   - `--width 1200` — größere intrinsische SVG-Dimensionen für bessere Darstellung
+
+2. **Dark Theme via `%%{init}%%` Direktive**
+   - Confluence rendert Attachments als `<img>` → transparenter Hintergrund wird zu Weiß
+   - Lösung: expliziter dunkler Hintergrund `#1e1e2e` (Catppuccin Mocha) direkt im Mermaid-Code
+   - Vollständige Palette: Nodes, Linien, Text, Gantt-Sections, Grid alle dunkel
+   - `%%{init}%%` wird serverseitig prepended — Agent sendet nur normalen Mermaid-Code
+
+3. **Phasen-Layout für Prozessschritte**
+   - Agent markiert Phasen mit `[Phasenname]` Prefix in `steps` Parameter
+   - `parseGroupedSteps()` parst Marker und gruppiert Steps
+   - `buildWikiMarkup()` rendert `{panel:title=...|borderColor=#0052CC|titleBGColor=#0052CC}` pro Phase
+   - Ohne Phasenmarker: bisherige flache nummerierte Liste
+
+4. **Diagramm-Typ Auswahl im System Prompt**
+   - `flowchart TD/LR`, `sequenceDiagram`, `stateDiagram-v2`, `gantt`
+   - Auswahl-Guide mit Kriterien und Mini-Beispielen
+   - Gantt nur wenn User Zeitangaben nennt
+
+5. **System Prompt — zwei Beispiel-Aufrufe**
+   - Beispiel 1: kurze Prozesse ohne Phasen (flache Liste)
+   - Beispiel 2: lange Prozesse mit `[Vorbereitung]`, `[Erster Tag]`, `[Abschluss]`
+
+### Gelöste Probleme
+
+| # | Problem | Ursache | Lösung |
+|---|---------|---------|--------|
+| 24 | Diagramm pixeliert beim Zoomen | PNG-Rasterformat | Wechsel auf SVG als primäres Format |
+| 25 | Weißer Hintergrund trotz `-b transparent` | Confluence `<img>` compositet Transparent auf Weiß (Browser-Spezifikation) | Explizite Hintergrundfarbe `#1e1e2e` via `%%{init}%%` |
+| 26 | Gantt-Chart heller Hintergrund | Mermaid Gantt-Theme: `sectionBkgColor` und `altSectionBkgColor` hell | Gantt-spezifische Theme-Variablen im `%%{init}%%` Direktive gesetzt |
+| 27 | ENOENT: no such file or directory | `unlink(outputPath)` vor `readFile(outputPath)` — async Reihenfolge falsch | `const buffer = await readFile(...)` vor den `unlink`-Calls |
+| 28 | Panel-Text im Dark Mode nicht lesbar | `bgColor=#DEEBFF` erzwang hellen Hintergrund, Confluence Dark Mode rendert weißen Text | `bgColor` aus Panel Macro entfernt — Confluence nutzt theme-adaptiven Default |
+| 29 | Diagramm zu klein in Confluence | `width=800` in Wiki Markup ignoriert für SVG `<img>` | `--width 1200` für größere intrinsische SVG-Größe |
+
+### Offene Punkte
+
+- [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
+- [ ] **ngrok URL:** Ändert sich bei jedem Neustart
+- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
+- [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
+- [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
