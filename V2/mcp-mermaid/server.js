@@ -23,32 +23,48 @@ function confluenceAuth() {
   return "Basic " + Buffer.from(`${CONFLUENCE_USERNAME}:${CONFLUENCE_API_TOKEN}`).toString("base64");
 }
 
-// ── Helper: Render mermaid code to PNG buffer ───────────────────────────────
-async function renderMermaid(code) {
+// ── Helper: Render mermaid code to SVG or PNG buffer ───────────────────────
+// For SVG: prepend %%{init}%% directive so Mermaid itself controls the background.
+// This is more reliable than post-processing or the -b/-t CLI flags,
+// because the directive is evaluated by the Mermaid renderer directly.
+async function renderMermaid(code, format = "svg") {
   const workDir = await mkdtemp(join(tmpdir(), "mermaid-"));
   const inputPath = join(workDir, "diagram.mmd");
-  const outputPath = join(workDir, "diagram.png");
+  const outputPath = join(workDir, `diagram.${format}`);
 
-  await writeFile(inputPath, code, "utf-8");
+  // Prepend init directive for SVG: fully dark theme.
+  // Note: transparent backgrounds don't work in Confluence <img> tags (renders as white).
+  // An explicit dark background (#1e1e2e) gives a consistent look in both light and dark mode.
+  const BG = "#1e1e2e";
+  const initDirective = format === "svg"
+    ? `%%{init: {'theme': 'dark', 'themeVariables': {'background': '${BG}', 'mainBkg': '#313244', 'nodeBorder': '#89b4fa', 'clusterBkg': '#45475a', 'titleColor': '#cdd6f4', 'edgeLabelBackground': '${BG}', 'lineColor': '#89b4fa', 'textColor': '#cdd6f4', 'sectionBkgColor': '#313244', 'altSectionBkgColor': '#45475a', 'gridColor': '#585b70', 'taskBkgColor': '#89b4fa', 'taskBorderColor': '#b4befe', 'taskTextColor': '#1e1e2e', 'activeTaskBkgColor': '#b4befe', 'doneTaskBkgColor': '#585b70'}}}%%\n`
+    : "";
+
+  await writeFile(inputPath, initDirective + code, "utf-8");
 
   await execFileAsync("mmdc", [
     "-i", inputPath,
     "-o", outputPath,
-    "-t", "dark",
-    "-b", "transparent",
+    "-b", BG,
+    "--width", "1200",
     "--puppeteerConfigFile", "/app/puppeteer-config.json",
   ], { timeout: 30_000 });
 
-  const pngBuffer = await readFile(outputPath);
+  const buffer = await readFile(outputPath);
   await unlink(inputPath).catch(() => {});
   await unlink(outputPath).catch(() => {});
-  return pngBuffer;
+  return buffer;
 }
 
-// ── Helper: Upload PNG as Confluence attachment ─────────────────────────────
+// ── Helper: MIME type from filename ────────────────────────────────────────
+function mimeForFilename(filename) {
+  return filename.endsWith(".svg") ? "image/svg+xml" : "image/png";
+}
+
+// ── Helper: Upload attachment to Confluence ─────────────────────────────────
 async function uploadAttachment(pageId, pngBuffer, filename) {
   const boundary = `----boundary-${randomUUID()}`;
-  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: image/png\r\n\r\n`;
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeForFilename(filename)}\r\n\r\n`;
   const footer = `\r\n--${boundary}--\r\n`;
 
   const body = Buffer.concat([
@@ -85,8 +101,33 @@ function parseList(str) {
   return str.split(";").map((s) => s.trim()).filter(Boolean);
 }
 
+// ── Helper: Parse steps — supports optional [Phase] grouping ────────────────
+// Input:  "[Vorbereitung] Schritt A; Schritt B; [Durchfuehrung] Schritt C"
+// Output: [{ label: "Vorbereitung", steps: ["Schritt A", "Schritt B"] },
+//          { label: "Durchfuehrung", steps: ["Schritt C"] }]
+// Without markers: [{ label: null, steps: ["Schritt A", "Schritt B", ...] }]
+function parseGroupedSteps(str) {
+  if (!str || str.trim() === "") return [];
+  const groups = [];
+  let current = { label: null, steps: [] };
+
+  for (const item of str.split(";").map((s) => s.trim()).filter(Boolean)) {
+    const phaseMatch = item.match(/^\[(.+?)\]\s*(.*)/);
+    if (phaseMatch) {
+      if (current.steps.length > 0 || current.label !== null) groups.push(current);
+      const firstStep = phaseMatch[2].trim();
+      current = { label: phaseMatch[1].trim(), steps: firstStep ? [firstStep] : [] };
+    } else {
+      current.steps.push(item);
+    }
+  }
+
+  if (current.steps.length > 0 || current.label !== null) groups.push(current);
+  return groups;
+}
+
 // ── Helper: Build wiki markup from structured data ──────────────────────────
-function buildWikiMarkup({ title, summary, prerequisites, steps, diagramFilename }) {
+function buildWikiMarkup({ title, summary, prerequisites, stepGroups, diagramFilename }) {
   const lines = [];
 
   lines.push(`h1. ${title}`);
@@ -103,19 +144,38 @@ function buildWikiMarkup({ title, summary, prerequisites, steps, diagramFilename
     lines.push("");
   }
 
-  if (steps.length > 0) {
+  const allSteps = stepGroups.flatMap((g) => g.steps);
+  const hasPhases = stepGroups.some((g) => g.label !== null);
+
+  if (allSteps.length > 0) {
     lines.push("h2. Prozessschritte");
     lines.push("");
-    for (const s of steps) {
-      lines.push(`# ${s}`);
+
+    if (hasPhases) {
+      for (const group of stepGroups) {
+        if (group.label) {
+          lines.push(`{panel:title=${group.label}|borderStyle=solid|borderColor=#0052CC|titleBGColor=#0052CC}`);
+        }
+        for (const s of group.steps) {
+          lines.push(`# ${s}`);
+        }
+        if (group.label) {
+          lines.push("{panel}");
+        }
+        lines.push("");
+      }
+    } else {
+      for (const s of allSteps) {
+        lines.push(`# ${s}`);
+      }
+      lines.push("");
     }
-    lines.push("");
   }
 
   if (diagramFilename) {
     lines.push("h2. Ablaufdiagramm");
     lines.push("");
-    lines.push(`!${diagramFilename}!`);
+    lines.push(`!${diagramFilename}|width=800!`);
     lines.push("");
   }
 
@@ -139,32 +199,36 @@ function createServer() {
       title: z.string().describe("Page title"),
       summary: z.string().describe("Short summary of the process"),
       prerequisites: z.string().describe("Prerequisites separated by semicolons, or empty string if none"),
-      steps: z.string().describe("Process steps separated by semicolons"),
+      steps: z.string().describe("Process steps separated by semicolons. Optionally prefix a phase with [Phase Name] e.g. '[Preparation] Step A; Step B; [Execution] Step C'"),
       mermaid_code: z.string().describe("Mermaid flowchart TD code for the diagram, or empty string if none"),
       labels: z.string().describe("Labels separated by semicolons"),
     },
     async ({ title, summary, prerequisites, steps, mermaid_code, labels }) => {
       const errors = [];
-      const stepList = parseList(steps);
+      const stepGroups = parseGroupedSteps(steps);
       const prereqList = parseList(prerequisites);
       const labelList = parseList(labels);
 
-      // 1. Render mermaid diagram
+      // 1. Render mermaid diagram — SVG preferred (vector, no pixelation), PNG as fallback
       let diagramFilename = null;
-      let pngBuffer = null;
+      let fileBuffer = null;
 
       if (mermaid_code && mermaid_code.trim() !== "") {
-        try {
-          // LLM sends literal "\n" (two chars) instead of real newlines — fix before rendering
-          // Also sanitize chars that break mermaid syntax as fallback
-          const cleanedCode = mermaid_code
-            .replace(/\\n/g, "\n")
-            .replace(/@/g, "(at)")
-            .replace(/&/g, " und ");
-          pngBuffer = await renderMermaid(cleanedCode);
-          diagramFilename = `diagram-${randomUUID().slice(0, 8)}.png`;
-        } catch (err) {
-          errors.push(`Diagram: ${err.message}`);
+        // LLM sends literal "\n" (two chars) instead of real newlines — fix before rendering
+        // Also sanitize chars that break mermaid syntax as fallback
+        const cleanedCode = mermaid_code
+          .replace(/\\n/g, "\n")
+          .replace(/@/g, "(at)")
+          .replace(/&/g, " und ");
+
+        for (const fmt of ["svg", "png"]) {
+          try {
+            fileBuffer = await renderMermaid(cleanedCode, fmt);
+            diagramFilename = `diagram-${randomUUID().slice(0, 8)}.${fmt}`;
+            break;
+          } catch (err) {
+            errors.push(`Diagram ${fmt.toUpperCase()}: ${err.message}`);
+          }
         }
       }
 
@@ -173,7 +237,7 @@ function createServer() {
         title,
         summary,
         prerequisites: prereqList,
-        steps: stepList,
+        stepGroups,
         diagramFilename,
       });
 
@@ -225,9 +289,9 @@ function createServer() {
       }
 
       // 4. Upload diagram
-      if (pngBuffer && pageId) {
+      if (fileBuffer && pageId) {
         try {
-          await uploadAttachment(pageId, pngBuffer, diagramFilename);
+          await uploadAttachment(pageId, fileBuffer, diagramFilename);
         } catch (err) {
           errors.push(`Upload: ${err.message}`);
         }
