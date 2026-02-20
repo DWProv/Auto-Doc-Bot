@@ -107,8 +107,10 @@ docker compose ps
 ### 3. ngrok Tunnel starten
 
 ```bash
-ngrok http 8080
+ngrok http 127.0.0.1:8080
 ```
+
+> **Windows-Hinweis:** `ngrok http localhost:8080` schlägt fehl, weil `localhost` zu `[::1]` (IPv6) aufgelöst wird, Docker aber nur IPv4 bindet. Immer `127.0.0.1` verwenden.
 
 Die angezeigte HTTPS-URL notieren (z.B. `https://abc123.ngrok-free.app`).
 
@@ -184,7 +186,8 @@ Confluence Wiki Markup Syntax (nicht Markdown), serverseitig generiert in `build
 - Nummerierte Liste: `# Schritt`
 - Aufzählung: `* Punkt`
 - Info-Panel: `{info:title=Titel}Text{info}`
-- Attachment-Bild: `!dateiname.png!`
+- Ausklappbarer Bereich: `{expand:title=Titel}Inhalt{expand}`
+- Attachment-Bild: `!dateiname.svg!` (SVG bevorzugt, PNG als Fallback)
 
 ### Mermaid Rendering
 - Serverseitig via `mmdc` (@mermaid-js/mermaid-cli) mit Chromium

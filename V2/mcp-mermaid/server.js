@@ -173,9 +173,9 @@ function buildWikiMarkup({ title, summary, prerequisites, stepGroups, diagramFil
   }
 
   if (diagramFilename) {
-    lines.push("h2. Ablaufdiagramm");
-    lines.push("");
+    lines.push("{expand:title=Ablaufdiagramm}");
     lines.push(`!${diagramFilename}|width=800!`);
+    lines.push("{expand}");
     lines.push("");
   }
 

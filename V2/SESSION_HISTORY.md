@@ -355,3 +355,50 @@ SVG-Diagramme, Phasen-Layout, Diagramm-Typ-Auswahl, Dark Theme.
 - [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
 - [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
 - [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
+
+---
+
+## Session 5 — 20.02.2026
+
+### Ziel
+Stabilitätsfixes, ausklappbares Ablaufdiagramm, Demo-Vorbereitung.
+
+### Was wurde gemacht
+
+1. **ngrok IPv4-Fix**
+   - ngrok versuchte Verbindung über IPv6 (`[::1]:8080`) — Docker lauscht nur auf IPv4
+   - Lösung: `ngrok http 127.0.0.1:8080` (explizite IPv4-Adresse statt `localhost`)
+
+2. **Ablaufdiagramm ausklappbar**
+   - `h2. Ablaufdiagramm` + Bild ersetzt durch Confluence `{expand}` Macro
+   - Diagramm ist standardmäßig eingeklappt, per Klick aufklappbar
+   - `server.js` `buildWikiMarkup()`: `{expand:title=Ablaufdiagramm}` + `!filename!` + `{expand}`
+
+3. **System Prompt — CQL-Suche verworfen**
+   - CQL-Suchstrategie hinzugefügt → Bot hängte (Copilot Studio Timeout bei mehreren sequentiellen Tool Calls)
+   - Suchsektion komplett entfernt — Fokus bleibt auf `create_confluence_doc`
+
+4. **Demo-Prompts erstellt**
+   - Akt 1: mcp-atlassian Suche (Confluence nach Onboarding-Seiten durchsuchen)
+   - Akt 2: mcp-mermaid Dokumentation (vollständiger Onboarding-Prozess mit Phasen)
+
+### Gelöste Probleme
+
+| # | Problem | Ursache | Lösung |
+|---|---------|---------|--------|
+| 30 | ngrok ERR_NGROK_8012 / Bad Gateway | ngrok löst `localhost` zu `::1` (IPv6) auf, Docker bindet nur IPv4 | `ngrok http 127.0.0.1:8080` (explizite IPv4) |
+| 31 | Bot hängt nach System Prompt Erweiterung | Sequentielle Tool Calls → Copilot Studio Timeout | Suchlogik aus System Prompt entfernt |
+
+### Key Learnings (Session 5)
+
+- **ngrok auf Windows:** `ngrok http localhost:8080` schlägt fehl wenn Docker nur IPv4 bindet. Immer `127.0.0.1` verwenden.
+- **Copilot Studio Timeouts:** Mehrere sequentielle Tool Calls können zum Hängen führen. System Prompt schlank halten.
+- **Confluence `{expand}` Macro:** Funktioniert in Wiki Markup — `{expand:title=Text}Inhalt{expand}`
+
+### Offene Punkte
+
+- [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
+- [ ] **ngrok URL:** Ändert sich bei jedem Neustart
+- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
+- [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
+- [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
