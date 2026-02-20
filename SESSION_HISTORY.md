@@ -352,7 +352,7 @@ SVG-Diagramme, Phasen-Layout, Diagramm-Typ-Auswahl, Dark Theme.
 
 - [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
 - [ ] **ngrok URL:** Ändert sich bei jedem Neustart
-- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
+- [x] **Produktions-Setup:** ngrok durch feste URL ersetzen → gelöst in Session 6 (Azure VM)
 - [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
 - [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
 
@@ -399,6 +399,71 @@ Stabilitätsfixes, ausklappbares Ablaufdiagramm, Demo-Vorbereitung.
 
 - [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
 - [ ] **ngrok URL:** Ändert sich bei jedem Neustart
-- [ ] **Produktions-Setup:** ngrok durch feste URL ersetzen
+- [x] **Produktions-Setup:** ngrok durch feste URL ersetzen → gelöst in Session 6 (Azure VM)
 - [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
 - [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
+
+---
+
+## Session 6 — 20.02.2026
+
+### Ziel
+ngrok durch feste Produktions-URL ersetzen — Azure VM als dauerhafter Host.
+
+### Was wurde gemacht
+
+1. **Azure VM als Produktionshost eingerichtet** (Ubuntu 24.04 LTS)
+   - Docker Compose v1 (1.29.2) durch Docker Compose Plugin v2 ersetzt
+   - Projektdateien per SCP auf VM übertragen
+   - Docker Stack gestartet: `docker compose up -d --build`
+
+2. **Azure DNS Label zugewiesen**
+   - Über Azure Portal → VM → Öffentliche IP → DNS-Namensbezeichnung
+   - Kostenlose Subdomain: `*.germanywestcentral.cloudapp.azure.com`
+   - Kein externer DNS-Dienst nötig
+
+3. **SSL mit Let's Encrypt via Certbot**
+   - Host-level nginx installiert (SSL-Terminator vor Docker)
+   - `server_names_hash_bucket_size 128` nötig wegen langer Azure-Domain
+   - NSG-Regeln in Azure für Port 80 + 443 geöffnet
+   - Certbot eingerichtet (automatische Zertifikatserneuerung alle 90 Tage)
+
+4. **Finale Architektur (Produktion)**
+   ```
+   Copilot Studio
+     → https://<dns-label>.germanywestcentral.cloudapp.azure.com/mermaid/mcp
+     → Host nginx (SSL-Terminator, Port 443)
+     → Docker nginx (Port 8080)
+         /mermaid/mcp → mcp-mermaid:3000
+         /atlassian/mcp → mcp-atlassian:8000
+     → Confluence REST API
+   ```
+
+5. **Verbindungstest erfolgreich**
+   - POST `/mermaid/mcp` → `{"serverInfo":{"name":"Atlassian MCP","version":"2.14.5"}}`
+   - MCP-Endpunkte in Copilot Studio auf neue URLs aktualisiert
+
+### Gelöste Probleme
+
+| # | Problem | Ursache | Lösung |
+|---|---------|---------|--------|
+| 32 | `docker compose` not found | Docker Compose v1 (Bindestrich-Binary) installiert | `docker-compose-plugin` via Docker's offizielles Ubuntu-Repo installiert |
+| 33 | `no configuration file provided` | Falsches Arbeitsverzeichnis | `cd ~/mcp/V2` vor allen compose-Befehlen |
+| 34 | Certbot Timeout (connection) | Port 80 in Azure NSG gesperrt | NSG-Regel für Port 80 hinzugefügt |
+| 35 | `could not build server_names_hash` | Azure-Domain zu lang für nginx Default (64 Byte) | `server_names_hash_bucket_size 128` in `nginx.conf` |
+
+### Key Learnings (Session 6)
+
+- **Azure NSG ist unabhängig von ufw** — beide müssen Port 80/443 erlauben, NSG ist vorgelagert
+- **Azure DNS Label:** Kostenlose `*.region.cloudapp.azure.com` Subdomain reicht für Let's Encrypt
+- **Docker Compose v2:** Ubuntu 24.04 braucht Dockers offizielles Repo (`noble`-Codename), nicht das Standard-Ubuntu-Repo
+- **`server_names_hash_bucket_size 128`:** Immer nötig bei langen Azure-Domainnamen in nginx
+- **Two-Layer nginx:** Host-nginx (SSL) → Docker-nginx (Routing) funktioniert sauber, Docker-Stack bleibt unverändert
+
+### Offene Punkte
+
+- [x] **Produktions-Setup:** Azure VM mit fester URL → erledigt
+- [ ] **API Token prüfen:** Token in `.env` könnte abgelaufen sein
+- [ ] **mcp-atlassian aufräumen:** Service aus docker-compose entfernen falls dauerhaft nicht gebraucht
+- [ ] **Agent-Icon:** PNG-Icon für Copilot Studio Agent erstellen (max 72 KB)
+- [ ] **Copilot Studio End-to-End Test** mit neuen Produktions-URLs

@@ -68,8 +68,8 @@ flowchart TD
 
 ## Voraussetzungen
 
-- Docker Desktop
-- ngrok (oder feste öffentliche URL)
+- Docker + Docker Compose Plugin (v2)
+- Öffentlich erreichbarer Server (Azure VM oder ngrok für lokale Entwicklung)
 - Microsoft 365 Copilot Studio Zugang
 - Atlassian API Token (https://id.atlassian.com/manage-profile/security/api-tokens)
 
@@ -104,7 +104,7 @@ docker compose ps
 # nginx-proxy-v2, mcp-atlassian-v2 (healthy), mcp-mermaid-v2
 ```
 
-### 3. ngrok Tunnel starten
+### 3a. Lokale Entwicklung — ngrok Tunnel
 
 ```bash
 ngrok http 127.0.0.1:8080
@@ -114,11 +114,111 @@ ngrok http 127.0.0.1:8080
 
 Die angezeigte HTTPS-URL notieren (z.B. `https://abc123.ngrok-free.app`).
 
+### 3b. Produktionsbetrieb — Azure VM
+
+Empfohlen für dauerhaften Betrieb ohne URL-Änderungen bei jedem Neustart.
+
+**Voraussetzungen:**
+- Ubuntu 24.04 VM mit öffentlicher IP in Azure
+- Ports 80 und 443 in der Azure Network Security Group (NSG) geöffnet
+
+**Azure DNS Label setzen (kostenlos):**
+```
+Azure Portal → VM → Öffentliche IP → Konfiguration
+→ DNS-Namensbezeichnung: z.B. "mcp-autodocbot"
+→ Ergibt: mcp-autodocbot.germanywestcentral.cloudapp.azure.com
+```
+
+**Docker Compose Plugin installieren:**
+```bash
+sudo apt remove docker-compose -y
+sudo apt install ca-certificates curl -y
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu noble stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update && sudo apt install docker-compose-plugin -y
+```
+
+**SSL-Zertifikat mit Let's Encrypt:**
+```bash
+sudo apt install nginx certbot python3-certbot-nginx -y
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+```
+
+`/etc/nginx/nginx.conf` — im `http { }` Block ergänzen (nötig bei langen Azure-Domainnamen):
+```nginx
+http {
+    server_names_hash_bucket_size 128;
+    ...
+}
+```
+
+```bash
+sudo certbot --nginx -d mcp-autodocbot.germanywestcentral.cloudapp.azure.com
+```
+
+**Host-nginx als SSL-Terminator** (`/etc/nginx/sites-available/mcp`):
+```nginx
+server {
+    listen 443 ssl;
+    server_name mcp-autodocbot.germanywestcentral.cloudapp.azure.com;
+
+    ssl_certificate /etc/letsencrypt/live/mcp-autodocbot.germanywestcentral.cloudapp.azure.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mcp-autodocbot.germanywestcentral.cloudapp.azure.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/mcp /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**Auto-Start bei VM-Reboot** (`/etc/systemd/system/mcp.service`):
+```ini
+[Unit]
+Description=Auto-Doc-Bot MCP Stack
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/home/<user>/mcp/V2
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable mcp && sudo systemctl start mcp
+```
+
+**Verbindung testen:**
+```bash
+curl -X POST https://mcp-autodocbot.germanywestcentral.cloudapp.azure.com/mermaid/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+Erwartete Antwort: `{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"..."},...}}`
+
 ### 4. Copilot Studio konfigurieren
 
 1. Neuen Agent in Microsoft Copilot Studio erstellen
 2. Einen MCP-Server als Tool-Provider hinzufügen:
-   - URL: `https://<ngrok-url>/mermaid/mcp`
+   - Lokal: `https://<ngrok-url>/mermaid/mcp`
+   - Produktion: `https://mcp-autodocbot.germanywestcentral.cloudapp.azure.com/mermaid/mcp`
 3. Inhalt von `system_prompt.md` als Agent Instructions einfügen
 4. Agent veröffentlichen und testen
 
@@ -170,7 +270,7 @@ Zweites Label = Thema (frei, Kleinbuchstaben): z.B. `onboarding`, `deployment`, 
 
 ## Bekannte Einschränkungen
 
-- **ngrok Free Tier:** URL ändert sich bei jedem Neustart. Muss in Copilot Studio aktualisiert werden.
+- **ngrok Free Tier:** URL ändert sich bei jedem Neustart. Muss in Copilot Studio aktualisiert werden. → Für Produktion: Azure VM mit DNS Label verwenden (siehe Setup 3b).
 - **Copilot Safety Filter:** Wiki Markup in Tool-Parametern wird als Prompt Injection blockiert (`openAIIndirectAttack`). Deshalb wird alle Formatierung serverseitig gemacht — der Agent sendet nur Plaintext.
 - **Komplexe Tool-Schemas:** Copilot Studio führt Tools mit Arrays oder verschachtelten Objekten nicht aus. Deshalb nur einfache Strings mit Semikolon-Trennung.
 - **Mermaid Sonderzeichen:** `@`, `&`, `<`, `>` brechen die Mermaid-Syntax. Der Agent vermeidet diese im Diagramm (E-Mail-Adressen etc. nur in den Schritten). Server-Fallback sanitiert zusätzlich.
